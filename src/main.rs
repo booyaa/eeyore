@@ -30,15 +30,16 @@ fn main() {
     dotenv().ok();
 
     let cookie_signing_key = env::var("SECRET")
-        .expect("SECRET must be specified to sign cookies").as_bytes().to_vec();
+                                 .expect("SECRET must be specified to sign cookies")
+                                 .as_bytes()
+                                 .to_vec();
 
     let mut router = Router::new();
     router.get("/", |_: &mut Request| {
-        Ok(Response::with((
-            status::Ok,
-            Header(ContentType::html()),
-            "<html><body><div><a href='/oauth'>Log in with Github</a></div></body></html>"
-        )))
+        Ok(Response::with((status::Ok,
+                           Header(ContentType::html()),
+                           "<html><body><div><a href='/oauth'>Log in with \
+                            Github</a></div></body></html>")))
     });
 
     router.get("/oauth", |_: &mut Request| {
@@ -58,32 +59,43 @@ fn main() {
         let bearer_token = oauth_client.request_token(&Default::default(), code.trim()).unwrap();
 
         let mut response = redirect_response(String::from("/repos"));
-        response.set_cookie(cookie::Cookie::new(
-            String::from("access_token"), String::from(bearer_token.access_token())
-        ));
+        response.set_cookie(cookie::Cookie::new(String::from("access_token"),
+                                                String::from(bearer_token.access_token())));
         Ok(response)
     });
 
     router.get("/repos", |request: &mut Request| {
         let access_token = match request.get_cookie("access_token") {
             Some(token) => token.value.clone(),
-            None        => return not_logged_in(),
+            None => return not_logged_in(),
         };
 
         let repos = authorized_repos(&access_token);
         let mut data: BTreeMap<String, Json> = BTreeMap::new();
 
-        let repo_data = repos.into_iter().map(|r| {
-            let mut d = BTreeMap::new();
-            d.insert(String::from("full_name"), r.full_name.to_json());
-            d
-        }).collect::<Vec<_>>();
+        let repo_data = repos.into_iter()
+                             .map(|r| {
+                                 let mut d = BTreeMap::new();
+                                 d.insert(String::from("full_name"), r.full_name.to_json());
+                                 d
+                             })
+                             .collect::<Vec<_>>();
         data.insert(String::from("repos"), repo_data.to_json());
 
-        Ok(Response::with((
-            status::Ok,
-            Template::new("repos", data),
-        )))
+        Ok(Response::with((status::Ok, Template::new("repos", data))))
+    });
+
+    router.post("/enablement", |request: &mut Request| {
+        let params = request.get_ref::<Params>().unwrap();
+        println!("enablement params: {:?}", params);
+        // sample response from form: {"repo": "booyaa/anchor"}
+        // store in cookie for now
+        // TODO: display another form to capture who triagers are
+        Ok(Response::with((status::Ok,
+                           Header(ContentType::html()),
+                           "<html><body><div>Enabled! <a href='/repos'>Go \
+                            back</a></div></body></html>")))
+
     });
 
     let mut chain = Chain::new(router);
@@ -102,20 +114,18 @@ fn main() {
 }
 
 fn github_client() -> inth_oauth2::Client<GitHub> {
-    inth_oauth2::Client::<GitHub>::new(
-        env::var("CLIENT_ID").expect("Github OAuth CLIENT_ID must be specified"),
-        env::var("CLIENT_SECRET").expect("Github OAuth CLIENT_SECRET must be specified"),
-        env::var("REDIRECT_URI").ok()
-    )
+    inth_oauth2::Client::<GitHub>::new(env::var("CLIENT_ID")
+                                           .expect("Github OAuth CLIENT_ID must be specified"),
+                                       env::var("CLIENT_SECRET")
+                                           .expect("Github OAuth CLIENT_SECRET must be specified"),
+                                       env::var("REDIRECT_URI").ok())
 }
 
 fn authorized_repos(access_token: &str) -> Vec<hubcaps::rep::Repo> {
     let user_client = hyper::Client::new();
-    let user_github = hubcaps::Github::new(
-        "my-cool-user-agent/0.1.0",
-        &user_client,
-        hubcaps::Credentials::Token(access_token.to_string())
-    );
+    let user_github = hubcaps::Github::new("my-cool-user-agent/0.1.0",
+                                           &user_client,
+                                           hubcaps::Credentials::Token(access_token.to_string()));
     let repos = user_github.repos().list(&Default::default()).unwrap();
     // TODO: filter to only return repositories on which the user has admin permissions
     // TODO: paginate to get all repos, not currently supported by hubcaps
@@ -129,9 +139,7 @@ fn not_logged_in() -> Result<Response, iron::error::IronError> {
 }
 
 fn redirect_response(redirect_uri: String) -> Response {
-    Response::with((
-        status::Found,
-        Header(Location(redirect_uri.clone())),
-        format!("You are being <a href='{}'>redirected</a>.", redirect_uri),
-    ))
+    Response::with((status::Found,
+                    Header(Location(redirect_uri.clone())),
+                    format!("You are being <a href='{}'>redirected</a>.", redirect_uri)))
 }
