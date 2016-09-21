@@ -91,6 +91,7 @@ fn main() {
         // TODO: Merge authorized_repos w/ datastore cookie
         let repo_data = repos.into_iter()
                              .take(5) // TODO: paginaters gonna paginate
+                             .filter(|x| x.full_name != repos_enabled) // I don't think this is desired behaviour. Maybe modify data's structure to include a state field?
                              .map(|r| {
                                  let mut d = BTreeMap::new();
                                  d.insert(String::from("full_name"), r.full_name.to_json());
@@ -109,17 +110,17 @@ fn main() {
         // sample response from form: {"repo": "booyaa/anchor"}
         let params = request.get_ref::<Params>().unwrap();
 
-        let key = "repo";
+        let key = "repo";;
+        let mut param_value = String::new();
         match params.get(key.into()) {
             Some(&Value::String(ref value)) => {
                 println!("POST /enablement value: {}", value);
-                assert_eq!(value, "booyaa/alexandria-plsql-utils");
+                param_value = format!("{}", value);
             }
             _ => {}
         }
 
         println!("POST /enablement params: {:?}", params);
-        let params_raw = format!("{:#?}", params);
 
         // store in cookie for now
         // TODO: display another form to capture who triagers are
@@ -128,8 +129,7 @@ fn main() {
                                            "<html><body><div>Enabled! <a href='/repos'>Go \
                                             back</a></div></body></html>"));
 
-        response.set_cookie(cookie::Cookie::new(String::from("datastore"),
-                                                String::from(params_raw)));
+        response.set_cookie(cookie::Cookie::new(String::from("datastore"), param_value));
         Ok(response)
 
     });
