@@ -14,7 +14,7 @@ use iron::prelude::*;
 use iron::status;
 use iron::headers::{ContentType, Location};
 use iron::modifiers::Header;
-use params::Params;
+use params::{Params, Value};
 use oven::{RequestExt, ResponseExt};
 use router::Router;
 use inth_oauth2::provider::GitHub;
@@ -35,11 +35,18 @@ fn main() {
                                  .to_vec();
 
     let mut router = Router::new();
-    router.get("/", |_: &mut Request| {
+    router.get("/", |request: &mut Request| {
+        let repos_enabled = match request.get_cookie("datastore") {
+            Some(data) => data.value.clone(),
+            None => String::new(),
+        };
+
+        println!("GET / cookie datastore: {:?}", repos_enabled);
+
         Ok(Response::with((status::Ok,
                            Header(ContentType::html()),
-                           "<html><body><div><a href='/oauth'>Log in with \
-                            Github</a></div></body></html>")))
+                           "<html><body>home | <a href=/repos>repos</a> | stuff<br /><div><a \
+                            href='/oauth'>Log in with Github</a></div></body></html>")))
     });
 
     router.get("/oauth", |_: &mut Request| {
@@ -70,31 +77,60 @@ fn main() {
             None => return not_logged_in(),
         };
 
+        let repos_enabled = match request.get_cookie("datastore") {
+            Some(data) => data.value.clone(),
+            None => String::new(),
+        };
+
+        println!("GET /repos cookie datastore: {:?}", repos_enabled);
+
         let repos = authorized_repos(&access_token);
         let mut data: BTreeMap<String, Json> = BTreeMap::new();
 
+        // big list! println!("repos: {:#?}", repos);
+        // TODO: Merge authorized_repos w/ datastore cookie
         let repo_data = repos.into_iter()
+                             .take(5) // TODO: paginaters gonna paginate
                              .map(|r| {
                                  let mut d = BTreeMap::new();
                                  d.insert(String::from("full_name"), r.full_name.to_json());
                                  d
                              })
                              .collect::<Vec<_>>();
+
+        // TODO: Save default state to datastore cookie
+
         data.insert(String::from("repos"), repo_data.to_json());
 
         Ok(Response::with((status::Ok, Template::new("repos", data))))
     });
 
     router.post("/enablement", |request: &mut Request| {
-        let params = request.get_ref::<Params>().unwrap();
-        println!("enablement params: {:?}", params);
         // sample response from form: {"repo": "booyaa/anchor"}
+        let params = request.get_ref::<Params>().unwrap();
+
+        let key = "repo";
+        match params.get(key.into()) {
+            Some(&Value::String(ref value)) => {
+                println!("POST /enablement value: {}", value);
+                assert_eq!(value, "booyaa/alexandria-plsql-utils");
+            }
+            _ => {}
+        }
+
+        println!("POST /enablement params: {:?}", params);
+        let params_raw = format!("{:#?}", params);
+
         // store in cookie for now
         // TODO: display another form to capture who triagers are
-        Ok(Response::with((status::Ok,
-                           Header(ContentType::html()),
-                           "<html><body><div>Enabled! <a href='/repos'>Go \
-                            back</a></div></body></html>")))
+        let mut response = Response::with((status::Ok,
+                                           Header(ContentType::html()),
+                                           "<html><body><div>Enabled! <a href='/repos'>Go \
+                                            back</a></div></body></html>"));
+
+        response.set_cookie(cookie::Cookie::new(String::from("datastore"),
+                                                String::from(params_raw)));
+        Ok(response)
 
     });
 
