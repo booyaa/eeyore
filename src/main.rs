@@ -9,6 +9,8 @@ extern crate handlebars_iron as hbs;
 extern crate rustc_serialize;
 extern crate params;
 extern crate dotenv;
+#[macro_use]
+extern crate log;
 
 use iron::prelude::*;
 use iron::status;
@@ -25,6 +27,8 @@ use dotenv::dotenv;
 
 use std::env;
 use std::collections::BTreeMap;
+
+const USER_AGENT: &'static str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
 fn main() {
     dotenv().ok();
@@ -45,8 +49,9 @@ fn main() {
 
         Ok(Response::with((status::Ok,
                            Header(ContentType::html()),
-                           "<html><body>home | <a href=/repos>repos</a> | stuff<br /><div><a \
-                            href='/oauth'>Log in with Github</a></div></body></html>")))
+                           "<html><body>home | <a href=/triage>triage</a> | <a \
+                            href=/repos>repos</a> | stuff<br /><div><a href='/oauth'>Log in with \
+                            Github</a></div></body></html>")))
     });
 
     router.get("/oauth", |_: &mut Request| {
@@ -100,7 +105,7 @@ fn main() {
                              .collect::<Vec<_>>();
 
         // TODO: Save default state to datastore cookie
-
+        println!("raw:{:#?}\njson:{:#?}", repo_data, repo_data.to_json());
         data.insert(String::from("repos"), repo_data.to_json());
 
         Ok(Response::with((status::Ok, Template::new("repos", data))))
@@ -134,6 +139,26 @@ fn main() {
 
     });
 
+    router.get("/triage", |request: &mut Request| {
+        // get issues?
+        // allow you to select multiple issues
+        // # | title | desc | labels | date (created/last mod)
+        // Issue.title / Issue.body / Labels / created_at / updated_at
+        let access_token = match request.get_cookie("access_token") {
+            Some(token) => token.value.clone(),
+            None => return not_logged_in(),
+        };
+
+        let issues = authorized_issues(&access_token);
+
+        println!("GET /triage {:#?}", issues);
+        Ok(Response::with((status::Ok,
+                           Header(ContentType::html()),
+                           "<html><body><a href=/>home</a> | triage | <a href=/repos>repos</a> | \
+                            stuff<br /><div><a href='/oauth'>Log in with \
+                            Github</a></div></body></html>")))
+    });
+
     let mut chain = Chain::new(router);
 
     chain.link(oven::new(cookie_signing_key));
@@ -159,7 +184,7 @@ fn github_client() -> inth_oauth2::Client<GitHub> {
 
 fn authorized_repos(access_token: &str) -> Vec<hubcaps::rep::Repo> {
     let user_client = hyper::Client::new();
-    let user_github = hubcaps::Github::new("my-cool-user-agent/0.1.0",
+    let user_github = hubcaps::Github::new(USER_AGENT,
                                            &user_client,
                                            hubcaps::Credentials::Token(access_token.to_string()));
     let repos = user_github.repos().list(&Default::default()).unwrap();
@@ -167,6 +192,19 @@ fn authorized_repos(access_token: &str) -> Vec<hubcaps::rep::Repo> {
     // TODO: paginate to get all repos, not currently supported by hubcaps
     repos
 }
+
+fn authorized_issues(access_token: &str) -> std::vec::Vec<hubcaps::Issue> {
+    let user_client = hyper::Client::new();
+    let user_github = hubcaps::Github::new(USER_AGENT,
+                                           &user_client,
+                                           hubcaps::Credentials::Token(access_token.to_string()));
+    let repository = user_github.repo("booyaa".to_string(), "hello-homu".to_string());
+    let issues_dataset = repository.issues();
+    let issues = issues_dataset.list(&Default::default()).unwrap();
+    issues
+}
+
+
 
 fn not_logged_in() -> Result<Response, iron::error::IronError> {
     // TODO: add some indication that you've been redirected because you weren't
